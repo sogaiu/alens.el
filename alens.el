@@ -26,27 +26,30 @@
 
 ;; sample session (where content is actually base64-encoded and line-based)
 ;;
-;; client:
+;; c->s:
+;;   [:entry 0 {:value {:bag #{:water-bottle :pencil :notepad},
+;;                      :position :standing,
+;;                      :mind [:tune :chatter]}, :meta nil}]
 ;;
-;;  [:entry 1 {:value {:bag #{:water-bottle :pencil :notepad},
-;;                            :position :standing,
-;;                            :mind [:tune :chatter]},
-;;             :meta nil}]
+;; s->c: (user clicking on row with :mind as key)
+;;   [:nav 0 :mind [:tune :chatter]]
 ;;
-;; server:
-;;
-;;  [:nav 1 :bag #{:water-bottle :pencil :notepad}]
-;;
-;; client:
-;;
-;;  [:nav 1 {:value #{:water-bottle :pencil :notepad},
-;;           :meta nil, :idx 2}]
+;; c->s:
+;;   [:nav 0 {:value [:tune :chatter],
+;;            :meta nil,
+;;            :idx 1}] ; new entry index
 
 ;;; Code:
 
 (require 'cl-lib)
 (require 'e2c)
 (require 'parseedn)
+
+(defvar alens-entry-counter
+  0)
+
+(defvar alens-entries
+  nil)
 
 (defvar alens-client-buffer
   "*alens-client-buffer*")
@@ -65,37 +68,78 @@
 
 (declare alens-send)
 
-(defun alens-make-entry-req (value)
-  "Make punk entry request from VALUE."
+(defun alens-reset-state ()
+  "Reset state."
+  (setq alens-entries nil)
+  (setq alens-entry-counter 0)
+  (setq alens-process nil))
+
+(defun alens-make-entry-req (idx value)
+  "Make punk entry request from IDX and VALUE."
   (concat
-   "[:entry 0 {:value "
-   (format "%s" (e2c-pr-str value))
+   "[:entry " (number-to-string idx)
+   " {:value " (format "%s" (e2c-pr-str value))
    " :meta nil}]"))
 
 (defun alens-make-nav-resp (idx value)
   "Make punk nav response from IDX and VALUE."
-  (concat
-   "[:nav " (number-to-string idx) " {:value "
-   (format "%s" (e2c-pr-str value))
-   " :meta nil :idx " (number-to-string (1+ idx)) "}]"))
+  (let ((new-idx alens-entry-counter))
+    (concat
+     "[:nav " (number-to-string idx)
+     " {:value " (format "%s" (e2c-pr-str value))
+     " :meta nil"
+     " :idx " (number-to-string new-idx) "}]")))
+
+(defun alens-process-sentinel (process event)
+  "Placeholder sentinel handed PROCESS and EVENT."
+  ;; XXX
+  (cond ((string-prefix-p "connection broken by remote peer" event)
+         (message "alens-process-sentinel: %S" event))
+        ((string-prefix-p "deleted" event)
+         (message "alens-process-sentinel: %S" event))
+        (t
+         (message "Unrecognized event")
+         (message "process: %S" process))))
 
 (defun alens-process-filter (process string)
   "Process filter handling STRING from PROCESS."
   (when-let ((edn-msg (base64-decode-string string))
              (msg (parseedn-read-str edn-msg))
-             (punk-msg-type (aref msg 0))
-             ;; XXX: ignoring what's at index 2
+             (punk-msg-type (aref msg 0)) ; XXX: should use?
              (idx (aref msg 1))
-             (ret-val (aref msg 3)))
-    (let* ((pre-encode (alens-make-nav-resp idx ret-val))
-           (encoded (base64-encode-string pre-encode 'no-line-break)))
-      (alens-send (concat encoded "\n")))))
+             (key (aref msg 2)))
+    (let ((entry (elt alens-entries idx)))
+      ;; XXX: can entry be nil?
+      (when entry
+        (let ((looked-up (cond ((e2c-alist-p entry)
+                                (alist-get key entry))
+                               ((hash-table-p entry)
+                                (gethash key entry))
+                               ((vectorp entry)
+                                (aref entry key))
+                               ((listp entry)
+                                (elt entry key))
+                               (t
+                                (message "entry: %S" entry)
+                                (message "type: %S" (type-of entry))
+                                (error "Don't know how to handle")))))
+          (let* ((pre-encode (alens-make-nav-resp idx looked-up))
+                 (encoded (base64-encode-string pre-encode 'no-line-break)))
+            (alens-send (concat encoded "\n"))
+            ;; XXX: no good way to tell whether send was successful?
+            (setq alens-entries
+                  (append alens-entries (list looked-up)))
+            (setq alens-entry-counter (1+ alens-entry-counter))))))))
 
 (defun alens-send-elisp-data (e-obj)
   "Send E-OBJ."
-  (let* ((pre-encode (alens-make-entry-req e-obj))
+  (let* ((pre-encode (alens-make-entry-req alens-entry-counter e-obj))
          (encoded (base64-encode-string pre-encode 'no-line-break)))
-    (alens-send (concat encoded "\n"))))
+    (alens-send (concat encoded "\n"))
+    ;; XXX: no good way to tell whether send was successful?
+    (setq alens-entries
+          (append alens-entries (list e-obj)))
+    (setq alens-entry-counter (1+ alens-entry-counter))))
 
 (defun alens-connect ()
   "Connect."
@@ -106,6 +150,7 @@
                               alens-host alens-port)))
     (when net-process
       (set-process-filter net-process 'alens-process-filter)
+      (set-process-sentinel net-process 'alens-process-sentinel)
       (setq alens-process net-process))))
 
 (defun alens-send (str)
@@ -121,7 +166,8 @@
   "Close connection."
   (interactive)
   (when alens-process
-    (kill-process alens-process)
+    (when (process-live-p alens-process)
+      (kill-process alens-process))
     (setq alens-process nil)))
 
 (provide 'alens)
