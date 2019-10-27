@@ -104,6 +104,10 @@
          (equal (car e-obj) 'quote))
     (concat "'"
             (symbol-name (cadr e-obj)))) ; XXX: iffy?
+   ((listp e-obj)
+    (concat "("
+            (mapconcat 'e2c-pr-str e-obj " ")
+            ")"))
    ((symbolp e-obj)
     (symbol-name e-obj))
    (t
