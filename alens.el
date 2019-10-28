@@ -141,6 +141,14 @@
           (append alens-entries (list e-obj)))
     (setq alens-entry-counter (1+ alens-entry-counter))))
 
+(defun alens-send-to-comint-buffer (form-str comint-buffer)
+  "Send FORM-STR to COMINT-BUFFER."
+  (save-excursion
+    (with-current-buffer comint-buffer
+      (goto-char (point-max))
+      (insert form-str)
+      (comint-send-input))))
+
 (defun alens-connect ()
   "Connect."
   (interactive)
