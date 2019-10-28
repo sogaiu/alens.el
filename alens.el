@@ -66,6 +66,9 @@
 (defvar alens-process
   nil)
 
+(defvar alens-comint-buffer
+  nil)
+
 (declare alens-send)
 
 (defun alens-reset-state ()
@@ -148,6 +151,27 @@
       (goto-char (point-max))
       (insert form-str)
       (comint-send-input))))
+
+(defun alens-get-comint-buffer (&optional comint-buffer)
+  "Try to get a comint buffer.
+Optional arg COMINT-BUFFER is a comint buffer or the name of one."
+  (or (cond ((bufferp comint-buffer)
+             comint-buffer)
+            ((stringp comint-buffer)
+             (get-buffer comint-buffer))
+            (t
+             (get-buffer alens-comint-buffer)))))
+
+;; XXX: try to connect directly to rebl prepl?
+(defun alens-send-to-rebl (e-obj &optional name comint-buffer)
+  "Send E-OBJ as Clojure data to REBL.
+Optional arg NAME is a label to display in REBL.
+Optional arg COMINT-BUFFER is a comint buffer or the name of one."
+  (when-let ((target-buffer (alens-get-comint-buffer comint-buffer)))
+    (alens-send-to-comint-buffer
+     (format "(cognitect.rebl/submit \"%s\" (quote %s))"
+             (or name e-obj) (e2c-pr-str e-obj))
+     target-buffer)))
 
 (defun alens-connect ()
   "Connect."
