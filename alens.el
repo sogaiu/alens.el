@@ -152,6 +152,13 @@
       (insert form-str)
       (comint-send-input))))
 
+(defun alens-tap-in-comint-buffer (e-obj comint-buffer)
+  "Send (tap> (quote <clojure-data>)) based on E-OBJ.
+COMINT-BUFFER is a repl-buffer or the name of one."
+  (alens-send-to-comint-buffer
+   (format "(tap> (quote %s))" (e2c-pr-str e-obj))
+   comint-buffer))
+
 (defun alens-get-comint-buffer (&optional comint-buffer)
   "Try to get a comint buffer.
 Optional arg COMINT-BUFFER is a comint buffer or the name of one."
@@ -172,6 +179,12 @@ Optional arg COMINT-BUFFER is a comint buffer or the name of one."
      (format "(cognitect.rebl/submit \"%s\" (quote %s))"
              (or name e-obj) (e2c-pr-str e-obj))
      target-buffer)))
+
+(defun alens-tap (e-obj &optional comint-buffer)
+  "Send E-OBJ as Clojure data via tap>.
+Optional arg COMINT-BUFFER is a repl-buffer or the name of one."
+  (when-let ((target-buffer (alens-get-comint-buffer comint-buffer)))
+    (alens-tap-in-comint-buffer e-obj target-buffer)))
 
 (defun alens-connect ()
   "Connect."
